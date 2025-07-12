@@ -30,6 +30,8 @@ type cliArgs struct {
 	FromTime  time.Duration
 	ToTime    time.Duration
 	Duration  time.Duration
+	Width     int
+	Height    int
 	ExtraArgs []string
 }
 
@@ -51,6 +53,12 @@ func parseArgs() cliArgs {
 	flag.DurationVar(&config.FromTime, "from", 0, "start encoding from this time (e.g., 5m30s, 1h30m, 300s)")
 	flag.DurationVar(&config.ToTime, "to", 0, "end encoding at this time (e.g., 10m, 1h30m, 420s)")
 	flag.DurationVar(&config.Duration, "duration", 0, "encoding duration (e.g., 10m, 1h30m, 420s)")
+
+	// New flags for width and height
+	flag.IntVar(&config.Width, "width", 0, "set output video width")
+	flag.IntVar(&config.Width, "w", 0, "set output video width")
+	flag.IntVar(&config.Height, "height", 0, "set output video height")
+	flag.IntVar(&config.Height, "h", 0, "set output video height")
 
 	flag.Parse()
 
@@ -87,13 +95,30 @@ func (c *cliArgs) Validate() error {
 }
 
 // generateFilename generates a new filename based on video properties
-func generateFilename(ctx context.Context, videoPath string) (string, error) {
-	probe, err := ffmpeg.Probe(ctx, videoPath)
-	if err != nil {
-		return "", err
+func generateFilename(filePath string, sourceWidth, sourceHeight, requestedWidth, requestedHeight int) string {
+	// Use provided dimensions if available, otherwise use original dimensions
+	finalWidth := sourceWidth
+	finalHeight := sourceHeight
+
+	if requestedWidth > 0 || requestedHeight > 0 {
+		if requestedWidth > 0 && requestedHeight > 0 {
+			// Both specified - use exact dimensions
+			finalWidth = requestedWidth
+			finalHeight = requestedHeight
+		} else if requestedWidth > 0 {
+			// Only width specified - calculate height maintaining aspect ratio
+			aspectRatio := float64(sourceHeight) / float64(sourceWidth)
+			finalWidth = requestedWidth
+			finalHeight = int(float64(requestedWidth) * aspectRatio)
+		} else {
+			// Only height specified - calculate width maintaining aspect ratio
+			aspectRatio := float64(sourceWidth) / float64(sourceHeight)
+			finalHeight = requestedHeight
+			finalWidth = int(float64(requestedHeight) * aspectRatio)
+		}
 	}
 
-	maxLength := max(probe.Width, probe.Height)
+	maxLength := max(finalWidth, finalHeight)
 
 	var resolution string
 	switch {
@@ -105,7 +130,7 @@ func generateFilename(ctx context.Context, videoPath string) (string, error) {
 		resolution = "720p"
 	}
 
-	baseName := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	baseName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
 
 	// Remove existing resolution tags
 	re := regexp.MustCompile(`\[\d+[pk]\]`)
@@ -117,7 +142,7 @@ func generateFilename(ctx context.Context, videoPath string) (string, error) {
 		newStem = fmt.Sprintf("%s [x265]", newStem)
 	}
 
-	return newStem, nil
+	return newStem
 }
 
 func run(ctx context.Context, args cliArgs) error {
@@ -158,11 +183,14 @@ func run(ctx context.Context, args cliArgs) error {
 		return fmt.Errorf("filename is too long")
 	}
 
-	// Generate output filename
-	newStem, err := generateFilename(ctx, args.VideoPath)
+	// Get video properties to determine source dimensions
+	probe, err := ffmpeg.Probe(ctx, args.VideoPath)
 	if err != nil {
-		return fmt.Errorf("failed to generate filename: %w", err)
+		return fmt.Errorf("failed to probe video: %w", err)
 	}
+
+	// Generate output filename
+	newStem := generateFilename(args.VideoPath, probe.Width, probe.Height, args.Width, args.Height)
 
 	savePath := filepath.Join(filepath.Dir(args.VideoPath), newStem+".mp4")
 
@@ -218,6 +246,8 @@ func run(ctx context.Context, args cliArgs) error {
 			Is10Bit:    args.Is10Bit,
 			FromTime:   args.FromTime,
 			Duration:   encodeDuration,
+			Width:      args.Width,
+			Height:     args.Height,
 			ExtraArgs:  args.ExtraArgs,
 		}
 
@@ -235,6 +265,8 @@ func run(ctx context.Context, args cliArgs) error {
 			FromTime:   args.FromTime,
 			Duration:   encodeDuration,
 			Denoise:    args.Denoise,
+			Width:      args.Width,
+			Height:     args.Height,
 			ExtraArgs:  args.ExtraArgs,
 		}
 

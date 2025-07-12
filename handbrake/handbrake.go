@@ -25,6 +25,8 @@ type EncodeParams struct {
 	FromTime   time.Duration
 	Duration   time.Duration
 	Denoise    bool
+	Width      int
+	Height     int
 	ExtraArgs  []string
 }
 
@@ -127,6 +129,20 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 
 	if params.Denoise {
 		args = append(args, "--hqdn3d", "light")
+	}
+
+	// Add video scaling parameters if width or height are specified
+	if params.Width > 0 || params.Height > 0 {
+		if params.Width > 0 && params.Height > 0 {
+			// Both dimensions specified - use exact dimensions
+			args = append(args, "--width", strconv.Itoa(params.Width), "--height", strconv.Itoa(params.Height))
+		} else if params.Width > 0 {
+			// Only width specified - scale proportionally
+			args = append(args, "--width", strconv.Itoa(params.Width))
+		} else {
+			// Only height specified - scale proportionally
+			args = append(args, "--height", strconv.Itoa(params.Height))
+		}
 	}
 
 	args = append(args, params.ExtraArgs...)

@@ -26,6 +26,8 @@ type EncodeParams struct {
 	Is10Bit    bool
 	FromTime   time.Duration
 	Duration   time.Duration
+	Width      int
+	Height     int
 	ExtraArgs  []string
 }
 
@@ -213,8 +215,25 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 		"-profile:v", "main",
 		"-map_metadata", "0",
 		"-metadata", fmt.Sprintf("title=%s", strings.TrimSuffix(filepath.Base(params.InputPath), filepath.Ext(params.InputPath))),
-		params.OutputPath,
 	}
+
+	// Add video scaling filter if width or height are specified
+	if params.Width > 0 || params.Height > 0 {
+		var scaleFilter string
+		if params.Width > 0 && params.Height > 0 {
+			// Both dimensions specified - scale to exact size maintaining aspect ratio (fit within)
+			scaleFilter = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease", params.Width, params.Height)
+		} else if params.Width > 0 {
+			// Only width specified - scale proportionally
+			scaleFilter = fmt.Sprintf("scale=%d:-2", params.Width)
+		} else {
+			// Only height specified - scale proportionally
+			scaleFilter = fmt.Sprintf("scale=-2:%d", params.Height)
+		}
+		args = append(args, "-vf", scaleFilter)
+	}
+
+	args = append(args, params.OutputPath)
 
 	if params.Is10Bit {
 		// Replace profile with main10
