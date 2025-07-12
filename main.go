@@ -35,18 +35,17 @@ type cliArgs struct {
 	Height    int
 	Debug     bool
 	ExtraArgs []string
+	Version   bool
 }
 
 // parseArgs parses command line arguments
 func parseArgs() cliArgs {
 	var config cliArgs
 
+	flag.BoolVar(&config.Version, "version", false, "show version information")
 	flag.StringVar(&config.Encoder, "encoder", "handbrake", "encoder engine (handbrake or ffmpeg)")
-	flag.StringVar(&config.Encoder, "e", "handbrake", "encoder engine (handbrake or ffmpeg)")
 	flag.Float64Var(&config.Quality, "quality", 35, "x265 quality factor")
-	flag.Float64Var(&config.Quality, "q", 35, "x265 quality factor")
 	flag.StringVar(&config.OutputDir, "output-dir", "", "directory to save encoded files")
-	flag.StringVar(&config.OutputDir, "o", "", "directory to save encoded files")
 	flag.BoolVar(&config.Denoise, "denoise", false, "enable denoise filter (HandBrake only)")
 	flag.BoolVar(&config.Is10Bit, "10bit", true, "encode using 10-bit profile")
 	// Handle 8bit flag to override 10bit
@@ -58,9 +57,7 @@ func parseArgs() cliArgs {
 
 	// New flags for width and height
 	flag.IntVar(&config.Width, "width", 0, "set output video width")
-	flag.IntVar(&config.Width, "w", 0, "set output video width")
 	flag.IntVar(&config.Height, "height", 0, "set output video height")
-	flag.IntVar(&config.Height, "h", 0, "set output video height")
 
 	flag.BoolVar(&config.Debug, "debug", false, "enable debug output")
 
@@ -81,6 +78,10 @@ func parseArgs() cliArgs {
 
 // Validate validates the command line arguments
 func (c *cliArgs) Validate() error {
+	if c.Version {
+		return nil
+	}
+
 	if c.VideoPath == "" {
 		return fmt.Errorf("video path is required")
 	}
@@ -246,6 +247,11 @@ func main() {
 	if err := args.Validate(); err != nil {
 		log.Fatal().Err(err).Send()
 		return
+	}
+
+	if args.Version {
+		fmt.Println(version)
+		os.Exit(0)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
