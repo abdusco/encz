@@ -186,6 +186,11 @@ type EncodeProgress struct {
 	CurrentSize int64
 }
 
+func (e *EncodeProgress) String() string {
+	return fmt.Sprintf("%3.1ffps, %3.1fMB/%3.1fMB (%.1f%%) ETA: %s",
+		e.FPSAvg, e.EncodedMB(), e.EstimatedMB(), e.Percent, e.ETA)
+}
+
 // EncodedMB returns the current encoded size in MB
 func (e *EncodeProgress) EncodedMB() float64 {
 	return float64(e.CurrentSize) / 1048576

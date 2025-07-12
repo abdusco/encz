@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -32,6 +33,7 @@ type cliArgs struct {
 	Duration  time.Duration
 	Width     int
 	Height    int
+	Debug     bool
 	ExtraArgs []string
 }
 
@@ -59,6 +61,8 @@ func parseArgs() cliArgs {
 	flag.IntVar(&config.Width, "w", 0, "set output video width")
 	flag.IntVar(&config.Height, "height", 0, "set output video height")
 	flag.IntVar(&config.Height, "h", 0, "set output video height")
+
+	flag.BoolVar(&config.Debug, "debug", false, "enable debug output")
 
 	flag.Parse()
 
@@ -142,28 +146,15 @@ func generateFilename(filePath string, sourceWidth, sourceHeight, requestedWidth
 		newStem = fmt.Sprintf("%s [x265]", newStem)
 	}
 
-	return newStem
+	ext := filepath.Ext(filePath)
+
+	return newStem + ext
 }
 
 func run(ctx context.Context, args cliArgs) error {
 	log.Ctx(ctx).Debug().
-		Str("input", args.VideoPath).
-		Str("encoder", args.Encoder).
-		Float64("quality", args.Quality).
-		Bool("10bit", args.Is10Bit).
-		Dur("from", args.FromTime).
-		Dur("duration", args.Duration).
-		Dur("to", args.ToTime).
+		Interface("args", args).
 		Msg("Starting encoding")
-
-	// Expand and resolve video path
-	if strings.HasPrefix(args.VideoPath, "~") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
-		}
-		args.VideoPath = filepath.Join(home, args.VideoPath[1:])
-	}
 
 	absPath, err := filepath.Abs(args.VideoPath)
 	if err != nil {
@@ -173,72 +164,39 @@ func run(ctx context.Context, args cliArgs) error {
 
 	log.Ctx(ctx).Debug().Str("resolved_path", args.VideoPath).Msg("Resolved input path")
 
-	// Check if file exists
 	if _, err := os.Stat(args.VideoPath); os.IsNotExist(err) {
 		return fmt.Errorf("no such file: %s", args.VideoPath)
 	}
 
-	// Validate filename length
-	if len(filepath.Base(args.VideoPath)) >= 128 {
-		return fmt.Errorf("filename is too long")
-	}
-
-	// Get video properties to determine source dimensions
 	probe, err := ffmpeg.Probe(ctx, args.VideoPath)
 	if err != nil {
 		return fmt.Errorf("failed to probe video: %w", err)
 	}
 
-	// Generate output filename
-	newStem := generateFilename(args.VideoPath, probe.Width, probe.Height, args.Width, args.Height)
+	args.OutputDir = cmp.Or(args.OutputDir, filepath.Dir(args.VideoPath))
 
-	savePath := filepath.Join(filepath.Dir(args.VideoPath), newStem+".mp4")
+	if err := os.MkdirAll(args.OutputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
 
-	// Check if input and output are the same
+	outputFilename := generateFilename(args.VideoPath, probe.Width, probe.Height, args.Width, args.Height)
+	savePath := filepath.Join(args.OutputDir, outputFilename)
+
+	// Prevent overwriting the input file
 	if args.VideoPath == savePath {
 		ext := filepath.Ext(args.VideoPath)
 		savePath = strings.TrimSuffix(args.VideoPath, ext) + ".reencoded" + ext
 	}
 
-	// Set up output directory
-	outputDir := args.OutputDir
-	if outputDir == "" {
-		outputDir = filepath.Join(filepath.Dir(savePath), "_reenc")
-	}
-
-	if strings.HasPrefix(outputDir, "~") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to get home directory: %w", err)
-		}
-		outputDir = filepath.Join(home, outputDir[1:])
-	}
-
-	absOutputDir, err := filepath.Abs(outputDir)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute output directory: %w", err)
-	}
-	outputDir = absOutputDir
-
-	// Create output directory
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return fmt.Errorf("failed to create output directory: %w", err)
-	}
-
-	savePath = filepath.Join(outputDir, filepath.Base(savePath))
-
 	log.Ctx(ctx).Debug().Str("output_path", savePath).Msg("Final output path determined")
 
-	// Calculate duration if --to flag is used instead of --duration
 	encodeDuration := args.Duration
 	if args.ToTime > 0 {
 		encodeDuration = args.ToTime - args.FromTime
 		log.Ctx(ctx).Debug().Dur("calculated_duration", encodeDuration).Msg("Calculated duration from to-from")
 	}
 
-	// Start encoding
 	if args.Encoder == "ffmpeg" {
-		// Use ffmpeg package for encoding
 		params := ffmpeg.EncodeParams{
 			InputPath:  args.VideoPath,
 			OutputPath: savePath,
@@ -252,11 +210,9 @@ func run(ctx context.Context, args cliArgs) error {
 		}
 
 		return ffmpeg.Encode(ctx, params, func(p ffmpeg.EncodeProgress) {
-			fmt.Printf("\rEncode: %3ffps, %3fMB/%3fMB (%.1f%%) ETA: %s",
-				p.FPSAvg, p.EncodedMB(), p.EstimatedMB(), p.Percent, p.ETA)
+			fmt.Printf("\r%s", p.String())
 		})
 	} else {
-		// Use HandBrake for encoding
 		params := handbrake.EncodeParams{
 			InputPath:  args.VideoPath,
 			OutputPath: savePath,
@@ -271,30 +227,30 @@ func run(ctx context.Context, args cliArgs) error {
 		}
 
 		return handbrake.Encode(ctx, params, func(p handbrake.EncodeProgress) {
-			fmt.Printf("\rEncode: %3.1ffps, %3.1fMB/%3.1fMB (%.1f%%) ETA: %s",
-				p.FPSAvg, p.EncodedMB(), p.EstimatedMB(), p.Percent, p.ETA)
+			fmt.Printf("\r%s", p.String())
 		})
 	}
 }
 
 func main() {
-	// Setup zerolog
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-	zerolog.DefaultContextLogger = &log.Logger
-
 	args := parseArgs()
 
-	// Validate the parsed arguments
+	level := zerolog.InfoLevel
+	if args.Debug {
+		level = zerolog.DebugLevel
+	}
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(level)
+	zerolog.DefaultContextLogger = &log.Logger
+
 	if err := args.Validate(); err != nil {
 		log.Fatal().Err(err).Send()
 		return
 	}
 
-	// Set up context with signal handling
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// Run the main application logic
 	if err := run(ctx, args); err != nil {
 		if errors.Is(err, context.Canceled) {
 			log.Info().Msg("Encoding cancelled by user")
