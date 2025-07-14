@@ -285,7 +285,7 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 
 	args = append(args, params.ExtraArgs...)
 
-	log.Ctx(ctx).Debug().Strs("args", args).Msg("Starting FFmpeg encoding")
+	log.Ctx(ctx).Debug().Strs("args", args).Msg("starting ffmpeg encoding")
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 

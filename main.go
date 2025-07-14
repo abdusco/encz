@@ -155,7 +155,7 @@ func generateFilename(filePath string, sourceWidth, sourceHeight, requestedWidth
 func run(ctx context.Context, args cliArgs) error {
 	log.Ctx(ctx).Debug().
 		Interface("args", args).
-		Msg("Starting encoding")
+		Msg("starting encoding")
 
 	absPath, err := filepath.Abs(args.VideoPath)
 	if err != nil {
@@ -163,7 +163,8 @@ func run(ctx context.Context, args cliArgs) error {
 	}
 	args.VideoPath = absPath
 
-	log.Ctx(ctx).Debug().Str("resolved_path", args.VideoPath).Msg("Resolved input path")
+	log.Ctx(ctx).Debug().
+		Str("resolved_path", args.VideoPath).Msg("resolved input path")
 
 	if _, err := os.Stat(args.VideoPath); os.IsNotExist(err) {
 		return fmt.Errorf("no such file: %s", args.VideoPath)
@@ -173,6 +174,9 @@ func run(ctx context.Context, args cliArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to probe video: %w", err)
 	}
+	log.Ctx(ctx).Debug().
+		Interface("probe", probe).
+		Msg("scanned media")
 
 	args.OutputDir = cmp.Or(args.OutputDir, filepath.Dir(args.VideoPath))
 
@@ -189,12 +193,16 @@ func run(ctx context.Context, args cliArgs) error {
 		savePath = strings.TrimSuffix(args.VideoPath, ext) + ".reencoded" + ext
 	}
 
-	log.Ctx(ctx).Debug().Str("output_path", savePath).Msg("Final output path determined")
+	log.Ctx(ctx).Debug().
+		Str("output_path", savePath).
+		Msg("save path for the encoded video")
 
 	encodeDuration := args.Duration
 	if args.ToTime > 0 {
 		encodeDuration = args.ToTime - args.FromTime
-		log.Ctx(ctx).Debug().Dur("calculated_duration", encodeDuration).Msg("Calculated duration from to-from")
+		log.Ctx(ctx).Debug().
+			Str("duration", encodeDuration.String()).
+			Msg("duration of the encoded video")
 	}
 
 	if args.Encoder == "ffmpeg" {
@@ -241,11 +249,14 @@ func main() {
 		level = zerolog.DebugLevel
 	}
 
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(level)
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.DateTime}).Level(level)
 	zerolog.DefaultContextLogger = &log.Logger
 
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	if err := args.Validate(); err != nil {
-		log.Fatal().Err(err).Send()
+		log.Ctx(ctx).Fatal().Err(err).Send()
 		return
 	}
 
@@ -254,14 +265,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
 	if err := run(ctx, args); err != nil {
 		if errors.Is(err, context.Canceled) {
-			log.Info().Msg("Encoding cancelled by user")
+			log.Ctx(ctx).Info().Msg("encoding cancelled by user")
 			os.Exit(1)
 		}
-		log.Fatal().Err(err).Msg("Encoding failed")
+		log.Ctx(ctx).Fatal().Err(err).Msg("encoding failed")
 	}
 }

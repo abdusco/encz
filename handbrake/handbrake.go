@@ -152,7 +152,7 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 
 	args = append(args, params.ExtraArgs...)
 
-	log.Ctx(ctx).Debug().Strs("args", args).Msg("Starting HandBrake encoding")
+	log.Ctx(ctx).Debug().Strs("args", args).Msg("starting handbrake encoding")
 
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
@@ -161,10 +161,10 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
-	log.Ctx(ctx).Debug().Msg("Starting HandBrake process")
+	log.Ctx(ctx).Debug().Msg("starting handbrake process")
 
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start HandBrake: %w", err)
+		return fmt.Errorf("failed to start handbrake: %w", err)
 	}
 
 	if onProgress != nil {
@@ -178,7 +178,7 @@ func Encode(ctx context.Context, params EncodeParams, onProgress ProgressCallbac
 	}
 
 	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("HandBrake failed: %w", err)
+		return fmt.Errorf("handbrake failed: %w", err)
 	}
 
 	return nil
